@@ -25,8 +25,35 @@ html,body{margin:0;padding:0;width:384px;height:96px;overflow:hidden;background:
 
 /* すべて #led を付けて詳細度(1,1,0)にしている。
    付けないと上の #led *{margin:0} (1,0,0) に負けて margin-left が効かない。 */
+/* ---- 天気アイコンのアニメーション ----
+   ・雨/雪は opacity を使わず「雲の裏から出て枠外へ抜ける」動きにしている。
+     半透明はLEDの低輝度域で色ムラになるため。SVGは viewBox 外を自動で切るので
+     終端で消え、開始位置は雲の裏に隠れる＝継ぎ目なくループする。
+   ・transform-origin は px で明示している。SVG要素では transform-box を使わない限り
+     原点がビューポート左上になり、指定しないと回転がずれる。 */
+@keyframes ledspin  {to{transform:rotate(360deg)}}
+@keyframes ledpulse {0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+@keyframes leddrop  {0%{transform:translateY(0)}100%{transform:translateY(26px)}}
+@keyframes ledflake {0%{transform:translateY(0)}100%{transform:translateY(24px)}}
+@keyframes leddrift {0%,100%{transform:translateX(-2px)}50%{transform:translateX(2px)}}
+@keyframes ledbolt  {0%,55%,100%{opacity:1}72%{opacity:.35}86%{opacity:1}}
+@keyframes ledfog   {0%,100%{transform:translateX(-3px)}50%{transform:translateX(3px)}}
+#led svg .rays {animation:ledspin 40s linear infinite}
+#led svg .core {animation:ledpulse 5s ease-in-out infinite}
+#led svg .drop {animation:leddrop 1.5s linear infinite}
+#led svg .d2   {animation-delay:-.5s}
+#led svg .d3   {animation-delay:-1s}
+#led svg .flake{animation:ledflake 3s linear infinite}
+#led svg .f2   {animation-delay:-1s}
+#led svg .f3   {animation-delay:-2s}
+#led svg .drift{animation:leddrift 8s ease-in-out infinite}
+#led svg .bolt {animation:ledbolt 2.6s ease-in-out infinite}
+#led svg .fg1  {animation:ledfog 6s ease-in-out infinite}
+#led svg .fg2  {animation:ledfog 6s ease-in-out infinite;animation-delay:-2s}
+#led svg .fg3  {animation:ledfog 6s ease-in-out infinite;animation-delay:-4s}
 #led .nw{white-space:nowrap}
 #led .deg{font-size:.40em;font-weight:bold;vertical-align:.95em}
+#led .deg2{font-size:.55em;font-weight:bold;vertical-align:.72em}
 #led .lbl{font-size:15px;font-weight:bold;color:#00E5A0}
 #led .pop{font-size:14px;font-weight:bold;color:#35C8FF;margin-left:9px}
 #led .hi{font-size:44px;font-weight:bold;color:#FFB020}
@@ -103,16 +130,18 @@ var CFG = {
    はみ出すと直線的に切り落とされて不自然な形になる。 */
 var CL_HI = '#EAF4FF', CL_LO = '#3F93D4', SUN = '#FFC83D', RAIN = '#35C8FF', SNOW = '#FFFFFF';
 
-function cloud(dx, dy, s) {
+function cloud(dx, dy, sc, cls) {
   var body = '<circle cx="21" cy="33" r="9.5"/><circle cx="31" cy="27.5" r="12"/>'
            + '<circle cx="40.5" cy="34" r="7.5"/><rect x="19" y="34" width="24.5" height="10" rx="4"/>';
-  return '<g transform="translate(' + dx + ',' + dy + ') scale(' + s + ')">'
+  return '<g class="' + (cls || '') + '" transform="translate(' + dx + ',' + dy + ') scale(' + sc + ')">'
        + '<g fill="' + CL_LO + '" transform="translate(0,3)">' + body + '</g>'
        + '<g fill="' + CL_HI + '">' + body + '</g></g>';
 }
+/* 太陽。光条はゆっくり回り、中心はゆっくり脈打つ */
 function sun(cx, cy, r) {
-  var o = '<g fill="' + SUN + '"><circle cx="' + cx + '" cy="' + cy + '" r="' + r + '"/>'
-        + '<g stroke="' + SUN + '" stroke-width="4.5" stroke-linecap="round">';
+  var org = ' style="transform-origin:' + cx + 'px ' + cy + 'px"';
+  var o = '<g fill="' + SUN + '"><circle class="core" cx="' + cx + '" cy="' + cy + '" r="' + r + '"' + org + '/>'
+        + '<g class="rays"' + org + ' stroke="' + SUN + '" stroke-width="4.5" stroke-linecap="round">';
   var R1 = r + 4, R2 = r + 7.5, i, a;
   for (i = 0; i < 8; i++) {
     a = i * Math.PI / 4;
@@ -124,32 +153,45 @@ function sun(cx, cy, r) {
 function shift(dx, dy, inner) {
   return '<g transform="translate(' + dx + ',' + dy + ')">' + inner + '</g>';
 }
+/* 雨粒。開始位置(y24-31)は雲の裏、translateY(26) で枠外へ抜けて自動的に切られる */
 function drops() {
-  return '<g stroke="' + RAIN + '" stroke-width="4" stroke-linecap="round">'
-       + '<line x1="17" y1="39" x2="14" y2="46"/><line x1="27" y1="39" x2="24" y2="46"/>'
-       + '<line x1="37" y1="39" x2="34" y2="46"/></g>';
+  var o = '<g stroke="' + RAIN + '" stroke-width="4" stroke-linecap="round">', i;
+  var xs = [17, 27, 37], cl = ['drop', 'drop d2', 'drop d3'];
+  for (i = 0; i < 3; i++) {
+    o += '<line class="' + cl[i] + '" x1="' + xs[i] + '" y1="24" x2="' + (xs[i] - 3) + '" y2="31"/>';
+  }
+  return o + '</g>';
 }
+/* 雪。雨より遅く落とす */
 function flakes() {
-  return '<g fill="' + SNOW + '"><circle cx="16" cy="42" r="3.2"/>'
-       + '<circle cx="27" cy="44" r="3.2"/><circle cx="38" cy="42" r="3.2"/></g>';
+  var o = '<g fill="' + SNOW + '">', i;
+  var xs = [16, 27, 38], cl = ['flake', 'flake f2', 'flake f3'];
+  for (i = 0; i < 3; i++) {
+    o += '<circle class="' + cl[i] + '" cx="' + xs[i] + '" cy="28" r="3.2"/>';
+  }
+  return o + '</g>';
 }
+/* 描画順に注意：雨粒・雪は雲より先に描く（雲の裏から出てくるようにするため） */
 var ICON = {
   sun     : function () { return sun(24, 24, 12); },
   partly  : function () { return sun(17, 17, 9) + cloud(0, 0, 1); },
-  cloudy  : function () { return shift(-6, -6, cloud(0, 0, 1)); },
-  rain    : function () { return shift(-5, 0, cloud(0, -9, 0.95) + drops()); },
-  rainsun : function () { return sun(15, 15, 7.5) + cloud(0, -9, 0.9) + drops(); },
-  snow    : function () { return shift(-5, 0, cloud(0, -9, 0.95) + flakes()); },
-  snowsun : function () { return sun(15, 15, 7.5) + cloud(0, -9, 0.9) + flakes(); },
-  sleet   : function () { return shift(-5, 0, cloud(0, -9, 0.95)
-                          + '<g stroke="' + RAIN + '" stroke-width="4" stroke-linecap="round">'
-                          + '<line x1="18" y1="39" x2="15" y2="46"/><line x1="34" y1="39" x2="31" y2="46"/></g>'
-                          + '<g fill="' + SNOW + '"><circle cx="26" cy="43" r="3.2"/></g>'); },
+  cloudy  : function () { return shift(-6, -6, cloud(0, 0, 1, 'drift')); },
+  rain    : function () { return shift(-5, 0, drops() + cloud(0, -9, 0.95)); },
+  rainsun : function () { return shift(-5, 0, sun(15, 15, 7.5) + drops() + cloud(0, -9, 0.9)); },
+  snow    : function () { return shift(-5, 0, flakes() + cloud(0, -9, 0.95)); },
+  snowsun : function () { return shift(-5, 0, sun(15, 15, 7.5) + flakes() + cloud(0, -9, 0.9)); },
+  sleet   : function () { return shift(-5, 0,
+                            '<g stroke="' + RAIN + '" stroke-width="4" stroke-linecap="round">'
+                          + '<line class="drop" x1="18" y1="24" x2="15" y2="31"/>'
+                          + '<line class="drop d3" x1="34" y1="24" x2="31" y2="31"/></g>'
+                          + '<g fill="' + SNOW + '"><circle class="flake f2" cx="26" cy="28" r="3.2"/></g>'
+                          + cloud(0, -9, 0.95)); },
   thunder : function () { return shift(-4, 0, cloud(0, -10, 0.92)
-                          + '<polygon points="27,31 18,42 25,42 21,48 33,38 26,38 31,31" fill="#FFE14D"/>'); },
+                          + '<polygon class="bolt" points="27,31 18,42 25,42 21,48 33,38 26,38 31,31" fill="#FFE14D"/>'); },
   fog     : function () { return '<g stroke="' + CL_HI + '" stroke-width="5" stroke-linecap="round">'
-                          + '<line x1="9" y1="16" x2="39" y2="16"/><line x1="13" y1="26" x2="43" y2="26"/>'
-                          + '<line x1="9" y1="36" x2="39" y2="36"/></g>'; }
+                          + '<line class="fg1" x1="9" y1="16" x2="39" y2="16"/>'
+                          + '<line class="fg2" x1="13" y1="26" x2="43" y2="26"/>'
+                          + '<line class="fg3" x1="9" y1="36" x2="39" y2="36"/></g>'; }
 };
 
 /* 気象庁の天気文(weathers)から種別を決める。
@@ -169,7 +211,12 @@ function pickIcon(text) {
   if (hasSun) return 'sun';
   return 'cloudy';
 }
+/* 天気が変わっていないときは作り直さない。
+   毎回 innerHTML を書き換えると5分ごとにアニメーションが先頭に巻き戻ってしまう。 */
+var iconCache = {};
 function setIcon(elId, kind, size) {
+  if (iconCache[elId] === kind) return;
+  iconCache[elId] = kind;
   document.getElementById(elId).innerHTML =
     '<svg width="' + size + '" height="' + size + '" viewBox="0 0 48 48"'
     + ' style="position:absolute;left:0;top:0">' + ICON[kind]() + '</svg>';
@@ -255,6 +302,7 @@ function parseJMA(json) {
 function txt(id, v) { document.getElementById(id).innerHTML = v; }
 function nz(v) { return (v === undefined || v === null) ? null : v; }
 function degHi(v) { return v === null ? '--' : (v + '<i class="deg">°</i>'); }
+function degLo(v) { return v === null ? ''   : (v + '<i class="deg2">°</i>'); }
 
 function render(data) {
   var now = new Date();
@@ -269,9 +317,9 @@ function render(data) {
   setIcon('ic1', pickIcon(a.text), 64);
   setIcon('ic2', pickIcon(b.text), 44);
   txt('h1', degHi(nz(a.max)));
-  txt('l1', aMin === null ? '' : ('' + aMin));
+  txt('l1', degLo(aMin));
   txt('h2', degHi(nz(b.max)));
-  txt('l2', bMin === null ? '' : ('' + bMin));
+  txt('l2', degLo(bMin));
   txt('pop1', nz(a.pop) === null ? '' : (a.pop + '%'));
   txt('pop2', nz(b.pop) === null ? '' : (b.pop + '%'));
   layout();
