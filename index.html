@@ -14,11 +14,14 @@ html,body{margin:0;padding:0;width:384px;height:96px;overflow:hidden;background:
    インライン要素だけは要素セレクタ(1,0,1)で通常フローに戻す。 */
 #led span,#led i{position:static}
 
-/* --- 画面（ペイン）。横スライドで入れ替える --- */
-.pane{left:0;top:0;width:384px;height:96px;overflow:hidden;background:#000;
-      -webkit-transform:translateX(384px);transform:translateX(384px)}
-.pane.slide{-webkit-transition:-webkit-transform 1200ms ease-in-out;
-            transition:transform 1200ms ease-in-out}
+/* --- 画面（ペイン）。フェードで入れ替える ---
+   2枚を同じ位置に重ね、不透明度だけで見せ消しする。
+   両方を同時に半透明にする「クロスフェード」は二重像になり、
+   夜間の低輝度時に色ムラとして目立つため、
+   「暗転しきってから次を出す」順番にしている（rotate() 参照）。 */
+.pane{left:0;top:0;width:384px;height:96px;overflow:hidden;background:#000;opacity:0}
+.pane.fade{-webkit-transition:opacity 700ms ease-in-out;
+           transition:opacity 700ms ease-in-out}
 
 .nw{white-space:nowrap}
 .deg{font-size:.40em;font-weight:bold;vertical-align:.95em}
@@ -86,7 +89,7 @@ var CFG = {
 
   /* --- 画面ローテーション（値の変更は build.py 側で行うこと） --- */
   HOLD   : [10000, 2000],  /* [天気を出す時間, ロゴを出す時間] */
-  SLIDE  : 1200                  /* スライド時間。CSS側と必ず同じ値 */
+  FADE   : 700                   /* フェード時間。CSS側と必ず同じ値 */
 };
 
 /* ---------- 天気アイコン（自作SVG。線は太く、面で塗る） ----------
@@ -273,16 +276,14 @@ function tick() {
 }
 
 /* ---------------- 画面ローテーション ----------------
-   常に「左へ流れる」動きに統一する。
-   出ていくペインは左(-384)へ、入ってくるペインは右(+384)から0へ。
-   スライドが終わったら、出ていったペインをアニメーション無しで右端に戻す。 */
+   「ふわっと消える → 一度真っ黒 → ふわっと現れる」の順で入れ替える。
+   2枚を同時に半透明にしないので二重像が出ず、低輝度時もきれいに見える。 */
 var PANES = ['s1', 's2'];
 var cur = 0;
 
-function setX(el, px, animate) {
-  el.className = animate ? 'pane slide' : 'pane';
-  el.style.webkitTransform = 'translateX(' + px + 'px)';
-  el.style.transform = 'translateX(' + px + 'px)';
+function setOp(el, v, animate) {
+  el.className = animate ? 'pane fade' : 'pane';
+  el.style.opacity = v;
 }
 
 function rotate() {
@@ -290,18 +291,14 @@ function rotate() {
   var nextIdx = (cur + 1) % PANES.length;
   var to = document.getElementById(PANES[nextIdx]);
 
-  setX(to, 384, false);            /* 入ってくる側を右端に置く（アニメ無し） */
-  void to.offsetHeight;            /* レイアウトを確定させないと transition が走らない */
-
+  setOp(from, 0, true);                  /* ふわっと消す */
   setTimeout(function () {
-    setX(from, -384, true);
-    setX(to, 0, true);
+    setOp(to, 1, true);                  /* 暗転しきってから、ふわっと出す */
     setTimeout(function () {
-      setX(from, 384, false);      /* 出ていったペインを右端へ戻す */
       cur = nextIdx;
       setTimeout(rotate, CFG.HOLD[cur]);
-    }, CFG.SLIDE + 80);
-  }, 20);
+    }, CFG.FADE + 80);
+  }, CFG.FADE + 80);
 }
 
 /* ---------------- 取得 ---------------- */
@@ -338,8 +335,8 @@ function load() {
 }
 
 /* ---------------- 起動 ---------------- */
-setX(document.getElementById('s1'), 0, false);    /* 天気を最初に出す */
-setX(document.getElementById('s2'), 384, false);
+setOp(document.getElementById('s1'), 1, false);   /* 天気を最初に出す */
+setOp(document.getElementById('s2'), 0, false);
 tick();
 setInterval(tick, 20000);
 load();
