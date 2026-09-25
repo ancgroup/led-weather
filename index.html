@@ -311,8 +311,14 @@ function nz(v) { return (v === undefined || v === null) ? null : v; }
 function degHi(v) { return v === null ? '--' : (v + '<i class="deg">°</i>'); }
 function degLo(v) { return v === null ? ''   : (v + '<i class="deg2">°</i>'); }
 
+/* 最後に描画したデータと、その時点の日付を覚えておく。
+   通信が切れたまま日付が変わったときに、古い予報を「今日」として出し続けないため。 */
+var lastData = null, lastDay = '';
+
 function render(data) {
   var now = new Date();
+  lastData = data;
+  lastDay = key(now);
   var a = data[key(now)] || {};
   var b = data[key(new Date(now.getTime() + 86400000))] || {};
 
@@ -357,6 +363,11 @@ function tick() {
   var d = new Date();
   txt('date', (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')');
   txt('time', d.getHours() + ':' + pad2(d.getMinutes()));
+  /* 日付が変わったら、取得を待たずにその場で描画し直す。
+     0時をまたいだ瞬間に「今日/明日」が正しくずれる。
+     通信が切れていて手持ちのデータに当日分が無ければ、自動的に "--" になる
+     （古い予報を今日の天気として出し続けない）。 */
+  if (lastData && key(d) !== lastDay) render(lastData);
 }
 
 /* ---------------- 画面ローテーション ----------------
