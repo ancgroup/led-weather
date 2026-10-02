@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=384,initial-scale=1,user-scalable=no">
+<!-- 検索エンジンに登録させない（サイネージ用のため公開検索される必要がない） -->
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>千葉商会 天気</title>
+<style>
+html,body{margin:0;padding:0;width:384px;height:96px;overflow:hidden;background:#000}
+/* 384x96 の枠に、96x384 の縦デザインを90°回して描く。
+   #led の中身は縦型(weather_v.html)と完全に同じ。寝かせるのは一番外側だけ。
+   96x384 の箱を中心まわりに90°回すと 384x96 の箱になるので、
+   箱の中心をページ中心(192,48)に置けばぴったり収まる。
+   回転角がちょうど90°なので再サンプリングが起きず、ドットは等倍のまま保たれる。 */
+#led{position:absolute;left:144px;top:-144px;width:96px;height:384px;overflow:hidden;background:#000;color:#fff;
+     -webkit-transform-origin:center center;transform-origin:center center;
+     -webkit-transform:rotate(-90deg);transform:rotate(-90deg);
+     font-family:"BIZ UDPGothic","Noto Sans CJK JP","Droid Sans Fallback","Yu Gothic UI","Meiryo",sans-serif}
+/* レイアウトは全て絶対座標。384x96の固定キャンバスなので回り込みを一切起こさせない */
+#led *{position:absolute;margin:0;padding:0;box-sizing:border-box}
+/* ↑の #led * は詳細度(1,0,0)でクラス指定に勝ってしまう。
+   インライン要素だけは要素セレクタ(1,0,1)で通常フローに戻す。 */
+#led span,#led i{position:static}
+
+/* --- 画面（ペイン）。フェードで入れ替える ---
+   2枚を同じ位置に重ね、不透明度だけで見せ消しする。
+   両方を同時に半透明にする「クロスフェード」は二重像になり、
+   夜間の低輝度時に色ムラとして目立つため、
+   「暗転しきってから次を出す」順番にしている（rotate() 参照）。 */
+.pane{left:0;top:0;width:96px;height:384px;overflow:hidden;background:#000;opacity:0}
+.pane.fade{-webkit-transition:opacity 700ms ease-in-out;
+           transition:opacity 700ms ease-in-out}
+
+/* すべて #led を付けて詳細度(1,1,0)にしている。
+   付けないと上の #led *{margin:0} (1,0,0) に負けて margin-left が効かない。 */
+/* ---- 天気アイコンのアニメーション ----
+   ・雨/雪は opacity を使わず「雲の裏から出て枠外へ抜ける」動きにしている。
+     半透明はLEDの低輝度域で色ムラになるため。SVGは viewBox 外を自動で切るので
+     終端で消え、開始位置は雲の裏に隠れる＝継ぎ目なくループする。
+   ・transform-origin は px で明示している。SVG要素では transform-box を使わない限り
+     原点がビューポート左上になり、指定しないと回転がずれる。 */
+@keyframes ledspin  {to{transform:rotate(360deg)}}
+@keyframes ledpulse {0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+@keyframes leddrop  {0%{transform:translateY(0)}100%{transform:translateY(26px)}}
+@keyframes ledflake {0%{transform:translateY(0)}100%{transform:translateY(24px)}}
+@keyframes leddrift {0%,100%{transform:translateX(-2px)}50%{transform:translateX(2px)}}
+@keyframes ledbolt  {0%,55%,100%{opacity:1}72%{opacity:.35}86%{opacity:1}}
+@keyframes ledfog   {0%,100%{transform:translateX(-3px)}50%{transform:translateX(3px)}}
+#led svg .rays {animation:ledspin 40s linear infinite}
+#led svg .core {animation:ledpulse 5s ease-in-out infinite}
+#led svg .drop {animation:leddrop 1.5s linear infinite}
+#led svg .d2   {animation-delay:-.5s}
+#led svg .d3   {animation-delay:-1s}
+#led svg .flake{animation:ledflake 3s linear infinite}
+#led svg .f2   {animation-delay:-1s}
+#led svg .f3   {animation-delay:-2s}
+#led svg .drift{animation:leddrift 8s ease-in-out infinite}
+#led svg .bolt {animation:ledbolt 2.6s ease-in-out infinite}
+#led svg .fg1  {animation:ledfog 6s ease-in-out infinite}
+#led svg .fg2  {animation:ledfog 6s ease-in-out infinite;animation-delay:-2s}
+#led svg .fg3  {animation:ledfog 6s ease-in-out infinite;animation-delay:-4s}
+/* ---- ロゴ画面の登場演出 ----
+   パーツを画面外から所定位置へ滑り込ませる。
+   不透明度を一切使わないので、夜間の低輝度でも色ムラが出ない。
+   減速カーブ(cubic-bezier)で最後にピタッと止めると「組み上がった」感じになる。
+   飛び出す距離は向きによって違うため -120px などで差し替えている。 */
+@keyframes ledinL{from{transform:translateX(-120px)}to{transform:translateX(0)}}
+@keyframes ledinR{from{transform:translateX(120px)}to{transform:translateX(0)}}
+@keyframes ledinU{from{transform:translateY(150px)}to{transform:translateY(0)}}
+#led .inL{animation:ledinL 460ms cubic-bezier(.16,.84,.44,1) 1 both}
+#led .inR{animation:ledinR 460ms cubic-bezier(.16,.84,.44,1) 1 both}
+#led .inU{animation:ledinU 460ms cubic-bezier(.16,.84,.44,1) 1 both}
+/* 遅延はあとに書く。先の .inL 等と同じ詳細度なので、後勝ちで上書きされる */
+#led .dl1{animation-delay:0ms}
+#led .dl2{animation-delay:170ms}
+#led .dl3{animation-delay:320ms}
+#led .dl4{animation-delay:470ms}
+#led .dl5{animation-delay:580ms}
+/* ---- ロゴ画面の車 ----
+   右(x=400)から左(x=-110)へ1回だけ走り、走り終わったら枠外で止まる(both)。
+   ロゴ画面に切り替わるたびに JS の restartCars() で先頭から流し直す。 */
+@keyframes leddrive{from{transform:translateX(400px)}to{transform:translateX(-110px)}}
+#led .car{animation:leddrive 5500ms linear 900ms 1 both}
+#led #carB{animation-delay:2300ms}
+#led .nw{white-space:nowrap}
+#led .deg{font-size:.40em;font-weight:bold;vertical-align:.95em}
+#led .deg2{font-size:.55em;font-weight:bold;vertical-align:.72em}
+#led .lbl{font-size:15px;font-weight:bold;color:#00E5A0}
+#led .pop{font-size:14px;font-weight:bold;color:#35C8FF;margin-left:9px}
+#led .hi{font-size:42px;font-weight:bold;color:#FFB020}
+#led .lo{font-size:23px;font-weight:bold;color:#35C8FF}
+#led .hi2{font-size:30px;font-weight:bold;color:#FFB020}
+#led .lo2{font-size:20px;font-weight:bold;color:#35C8FF}
+</style></head><body><div id="led">
+
+<!-- ============ 画面1：天気（縦型 96x384） ============
+     幅が96pxしかないため、全要素を中央揃えで縦に積む。
+     最高気温と最低気温も横並びにしない（氷点下2桁で必ずはみ出すため）。 -->
+<div class="pane" id="s1">
+  <div id="date" style="left:0;top:4px;width:96px;text-align:center;font-size:18px;font-weight:bold">--/--</div>
+  <div id="time" style="left:0;top:26px;width:96px;text-align:center;font-size:30px;font-weight:bold">--:--</div>
+  <div style="left:8px;top:62px;width:80px;height:2px;background:#00E5A0"></div>
+
+  <div class="nw" id="t1a" style="left:0;top:68px;width:96px;line-height:20px;text-align:center">
+    <span class="lbl">今日</span><span class="pop" id="pop1"></span>
+  </div>
+  <div id="ic1" style="left:12px;top:88px;width:72px;height:72px"></div>
+  <div class="nw" id="t1b" style="left:0;top:162px;width:96px;line-height:46px;text-align:center">
+    <span class="hi" id="h1">--</span>
+  </div>
+  <div class="nw" style="left:0;top:206px;width:96px;line-height:26px;text-align:center">
+    <span class="lo" id="l1"></span>
+  </div>
+
+  <div style="left:8px;top:236px;width:80px;height:2px;background:#35C8FF"></div>
+
+  <div class="nw" id="t2a" style="left:0;top:242px;width:96px;line-height:20px;text-align:center">
+    <span class="lbl">明日</span><span class="pop" id="pop2"></span>
+  </div>
+  <div id="ic2" style="left:20px;top:262px;width:56px;height:56px"></div>
+  <div class="nw" id="t2b" style="left:0;top:320px;width:96px;line-height:34px;text-align:center">
+    <span class="hi2" id="h2">--</span>
+  </div>
+  <div class="nw" style="left:0;top:352px;width:96px;line-height:24px;text-align:center">
+    <span class="lo2" id="l2"></span>
+  </div>
+</div>
+
+<!-- ============ 画面2：ロゴ（縦型） ============
+     元のロゴは384x96の横長で、96px幅に入れると社名が6pxになり読めない。
+     マーク／CHIBA／SHOKAI に切り分けて縦に組み直している。
+     CHIBA と SHOKAI は同じ倍率で縮小してあるので文字の大きさが揃う。
+     「株式会社 千葉商会」はロゴ画像だと10px以下になるため、
+     ページのフォントで2行に分けて描いている。
+     縦型に車は入れない（96pxでは走り抜ける距離が足りないため）。 -->
+<div class="pane" id="s2">
+  <img class="inL dl1" src="data:image/png;base64,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"   style="left:10px;top:96px;width:76px;height:66px" alt="">
+  <img class="inR dl2" src="data:image/png;base64,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"  style="left:13px;top:180px;width:70px;height:17px" alt="">
+  <img class="inR dl3" src="data:image/png;base64,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" style="left:2px;top:201px;width:92px;height:21px" alt="">
+  <div class="inU dl4" style="left:0;top:246px;width:96px;text-align:center;font-size:16px;font-weight:bold">株式会社</div>
+  <div class="inU dl5" style="left:0;top:266px;width:96px;text-align:center;font-size:16px;font-weight:bold">千葉商会</div>
+</div>
+
+</div>
+
+<script>
+/* ---------------------------------------------------------------
+   ES5 のみで記述している。
+   fetch / アロー関数 / const / テンプレートリテラル / CSS Grid は
+   Taurus(Android WebView) の版によっては動かないため使わないこと。
+   --------------------------------------------------------------- */
+var CFG = {
+  MODE   : 'direct',   /* 'direct'=気象庁を直接取得(構成A) / 'local'=同フォルダのdata.jsonを読む(構成B) */
+  JMA    : 'https://www.jma.go.jp/bosai/forecast/data/forecast/020000.json',
+  LOCAL  : 'data.json',
+  AREA   : '020010',   /* 津軽地方＝弘前市が属する予報区 */
+  TEMP   : '31461',    /* 気温地点：弘前 */
+  TEMP_FB: '31312',    /* 予備：青森（週間予報には弘前が無いため） */
+  REFRESH: 900000,     /* 15分ごとに再取得。気象庁の予報更新は5時/11時/17時の1日3回なので十分。4G SIM の通信量削減のため5分→15分に変更 */
+  RETRY  : 60000,      /* 失敗時は1分後に再試行 */
+
+  /* --- 画面ローテーション（値の変更は build.py 側で行うこと） --- */
+  HOLD   : [10000, 4200],  /* [天気を出す時間, ロゴを出す時間] */
+  FADE   : 700                   /* フェード時間。CSS側と必ず同じ値 */
+};
+
+/* ---------- 天気アイコン（自作SVG。線は太く、面で塗る） ----------
+   すべての図形を viewBox 0 0 48 48 の内側に収めること。
+   はみ出すと直線的に切り落とされて不自然な形になる。 */
+var CL_HI = '#EAF4FF', CL_LO = '#3F93D4', SUN = '#FFC83D', RAIN = '#35C8FF', SNOW = '#FFFFFF';
+
+function cloud(dx, dy, sc, cls) {
+  var body = '<circle cx="21" cy="33" r="9.5"/><circle cx="31" cy="27.5" r="12"/>'
+           + '<circle cx="40.5" cy="34" r="7.5"/><rect x="19" y="34" width="24.5" height="10" rx="4"/>';
+  return '<g class="' + (cls || '') + '" transform="translate(' + dx + ',' + dy + ') scale(' + sc + ')">'
+       + '<g fill="' + CL_LO + '" transform="translate(0,3)">' + body + '</g>'
+       + '<g fill="' + CL_HI + '">' + body + '</g></g>';
+}
+/* 太陽。光条はゆっくり回り、中心はゆっくり脈打つ */
+function sun(cx, cy, r) {
+  var org = ' style="transform-origin:' + cx + 'px ' + cy + 'px"';
+  var o = '<g fill="' + SUN + '"><circle class="core" cx="' + cx + '" cy="' + cy + '" r="' + r + '"' + org + '/>'
+        + '<g class="rays"' + org + ' stroke="' + SUN + '" stroke-width="4.5" stroke-linecap="round">';
+  var R1 = r + 4, R2 = r + 7.5, i, a;
+  for (i = 0; i < 8; i++) {
+    a = i * Math.PI / 4;
+    o += '<line x1="' + (cx + R1 * Math.cos(a)).toFixed(1) + '" y1="' + (cy + R1 * Math.sin(a)).toFixed(1)
+       + '" x2="' + (cx + R2 * Math.cos(a)).toFixed(1) + '" y2="' + (cy + R2 * Math.sin(a)).toFixed(1) + '"/>';
+  }
+  return o + '</g></g>';
+}
+function shift(dx, dy, inner) {
+  return '<g transform="translate(' + dx + ',' + dy + ')">' + inner + '</g>';
+}
+/* 雨粒。開始位置(y24-31)は雲の裏、translateY(26) で枠外へ抜けて自動的に切られる */
+function drops() {
+  var o = '<g stroke="' + RAIN + '" stroke-width="4" stroke-linecap="round">', i;
+  var xs = [17, 27, 37], cl = ['drop', 'drop d2', 'drop d3'];
+  for (i = 0; i < 3; i++) {
+    o += '<line class="' + cl[i] + '" x1="' + xs[i] + '" y1="24" x2="' + (xs[i] - 3) + '" y2="31"/>';
+  }
+  return o + '</g>';
+}
+/* 雪。雨より遅く落とす */
+function flakes() {
+  var o = '<g fill="' + SNOW + '">', i;
+  var xs = [16, 27, 38], cl = ['flake', 'flake f2', 'flake f3'];
+  for (i = 0; i < 3; i++) {
+    o += '<circle class="' + cl[i] + '" cx="' + xs[i] + '" cy="28" r="3.2"/>';
+  }
+  return o + '</g>';
+}
+/* 描画順に注意：雨粒・雪は雲より先に描く（雲の裏から出てくるようにするため） */
+var ICON = {
+  sun     : function () { return sun(24, 24, 12); },
+  partly  : function () { return sun(17, 17, 9) + cloud(0, 0, 1); },
+  cloudy  : function () { return shift(-6, -6, cloud(0, 0, 1, 'drift')); },
+  rain    : function () { return shift(-5, 0, drops() + cloud(0, -9, 0.95)); },
+  rainsun : function () { return shift(-5, 0, sun(15, 15, 7.5) + drops() + cloud(0, -9, 0.9)); },
+  snow    : function () { return shift(-5, 0, flakes() + cloud(0, -9, 0.95)); },
+  snowsun : function () { return shift(-5, 0, sun(15, 15, 7.5) + flakes() + cloud(0, -9, 0.9)); },
+  sleet   : function () { return shift(-5, 0,
+                            '<g stroke="' + RAIN + '" stroke-width="4" stroke-linecap="round">'
+                          + '<line class="drop" x1="18" y1="24" x2="15" y2="31"/>'
+                          + '<line class="drop d3" x1="34" y1="24" x2="31" y2="31"/></g>'
+                          + '<g fill="' + SNOW + '"><circle class="flake f2" cx="26" cy="28" r="3.2"/></g>'
+                          + cloud(0, -9, 0.95)); },
+  thunder : function () { return shift(-4, 0, cloud(0, -10, 0.92)
+                          + '<polygon class="bolt" points="27,31 18,42 25,42 21,48 33,38 26,38 31,31" fill="#FFE14D"/>'); },
+  fog     : function () { return '<g stroke="' + CL_HI + '" stroke-width="5" stroke-linecap="round">'
+                          + '<line class="fg1" x1="9" y1="16" x2="39" y2="16"/>'
+                          + '<line class="fg2" x1="13" y1="26" x2="43" y2="26"/>'
+                          + '<line class="fg3" x1="9" y1="36" x2="39" y2="36"/></g>'; }
+};
+
+/* 気象庁の天気文(weathers)から種別を決める。
+   コード表(100〜450)を網羅するより文字列判定のほうが取りこぼしが少ない。 */
+function pickIcon(text) {
+  var t = text || '';
+  var hasSun  = t.indexOf('晴') >= 0;
+  var hasCld  = t.indexOf('くもり') >= 0 || t.indexOf('曇') >= 0;
+  var hasRain = t.indexOf('雨') >= 0;
+  var hasSnow = t.indexOf('雪') >= 0;
+  if (t.indexOf('雷') >= 0) return 'thunder';
+  if (t.indexOf('霧') >= 0) return 'fog';
+  if (hasRain && hasSnow) return 'sleet';
+  if (hasSnow) return hasSun ? 'snowsun' : 'snow';
+  if (hasRain) return hasSun ? 'rainsun' : 'rain';
+  if (hasSun && hasCld) return 'partly';
+  if (hasSun) return 'sun';
+  return 'cloudy';
+}
+/* 天気が変わっていないときは作り直さない。
+   毎回 innerHTML を書き換えると5分ごとにアニメーションが先頭に巻き戻ってしまう。 */
+var iconCache = {};
+function setIcon(elId, kind, size) {
+  if (iconCache[elId] === kind) return;
+  iconCache[elId] = kind;
+  document.getElementById(elId).innerHTML =
+    '<svg width="' + size + '" height="' + size + '" viewBox="0 0 48 48"'
+    + ' style="position:absolute;left:0;top:0">' + ICON[kind]() + '</svg>';
+}
+
+/* ---------------- 日付ユーティリティ ---------------- */
+var WD = ['日', '月', '火', '水', '木', '金', '土'];
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+function key(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+function dkey(iso) { return iso.slice(0, 10); }
+function dhour(iso) { return parseInt(iso.slice(11, 13), 10); }
+
+/* ---------------- 気象庁JSONの解析 ---------------- */
+function findSeries(ts, prop) {
+  for (var i = 0; i < ts.length; i++) {
+    var a = ts[i].areas;
+    if (a && a.length && a[0][prop] !== undefined) return ts[i];
+  }
+  return null;
+}
+function areaByCode(series, code) {
+  if (!series) return null;
+  for (var i = 0; i < series.areas.length; i++) {
+    if (series.areas[i].area.code === code) return series.areas[i];
+  }
+  return series.areas[0];
+}
+
+/* 戻り値： out['YYYY-MM-DD'] = {text, pop, max, min} */
+function parseJMA(json) {
+  var out = {};
+  function slot(k) {
+    if (!out[k]) out[k] = { text: null, pop: null, max: null, min: null };
+    return out[k];
+  }
+  var ts = json[0].timeSeries, i;
+
+  /* 天気 */
+  var wS = findSeries(ts, 'weatherCodes'), wA = areaByCode(wS, CFG.AREA);
+  if (wS && wA) for (i = 0; i < wS.timeDefines.length; i++) {
+    slot(dkey(wS.timeDefines[i])).text = wA.weathers[i];
+  }
+
+  /* 降水確率：同じ日のうち最大値を採る */
+  var pS = findSeries(ts, 'pops'), pA = areaByCode(pS, CFG.AREA);
+  if (pS && pA) for (i = 0; i < pS.timeDefines.length; i++) {
+    var pv = parseInt(pA.pops[i], 10);
+    if (isNaN(pv)) continue;
+    var ps = slot(dkey(pS.timeDefines[i]));
+    if (ps.pop === null || pv > ps.pop) ps.pop = pv;
+  }
+
+  /* 気温：00時台=最低 / それ以外(09時台)=最高 */
+  var tS = findSeries(ts, 'temps'), tA = areaByCode(tS, CFG.TEMP);
+  if (tS && tA) for (i = 0; i < tS.timeDefines.length; i++) {
+    var tv = parseInt(tA.temps[i], 10);
+    if (isNaN(tv)) continue;
+    var s = slot(dkey(tS.timeDefines[i]));
+    if (dhour(tS.timeDefines[i]) < 6) { if (s.min === null) s.min = tv; }
+    else { if (s.max === null) s.max = tv; }
+  }
+
+  /* 週間予報で欠けを補う（週間の気温地点に弘前が無いので青森で代用） */
+  if (json[1] && json[1].timeSeries) {
+    var wk = findSeries(json[1].timeSeries, 'tempsMax'), kA = areaByCode(wk, CFG.TEMP_FB);
+    if (wk && kA) for (i = 0; i < wk.timeDefines.length; i++) {
+      var s2 = slot(dkey(wk.timeDefines[i]));
+      var mx = parseInt(kA.tempsMax[i], 10), mn = parseInt(kA.tempsMin[i], 10);
+      if (s2.max === null && !isNaN(mx)) s2.max = mx;
+      if (s2.min === null && !isNaN(mn)) s2.min = mn;
+    }
+    var wp = findSeries(json[1].timeSeries, 'pops'), pA2 = areaByCode(wp, CFG.AREA);
+    if (wp && pA2) for (i = 0; i < wp.timeDefines.length; i++) {
+      var s3 = slot(dkey(wp.timeDefines[i]));
+      var pv2 = parseInt(pA2.pops[i], 10);
+      if (s3.pop === null && !isNaN(pv2)) s3.pop = pv2;
+    }
+  }
+  return out;
+}
+
+/* ---------------- 描画 ---------------- */
+function txt(id, v) { document.getElementById(id).innerHTML = v; }
+function nz(v) { return (v === undefined || v === null) ? null : v; }
+function degHi(v) { return v === null ? '--' : (v + '<i class="deg">°</i>'); }
+function degLo(v) { return v === null ? ''   : (v + '<i class="deg2">°</i>'); }
+
+/* 最後に描画したデータと、その時点の日付を覚えておく。
+   通信が切れたまま日付が変わったときに、古い予報を「今日」として出し続けないため。 */
+var lastData = null, lastDay = '';
+
+function render(data) {
+  var now = new Date();
+  lastData = data;
+  lastDay = key(now);
+  var a = data[key(now)] || {};
+  var b = data[key(new Date(now.getTime() + 86400000))] || {};
+
+  /* 気象庁は11時以降の発表で「今日の最低気温」枠に観測済みの値を入れるため、
+     最高と同値になることがある。同値・欠損のときは最低を出さない。 */
+  var aMin = (nz(a.min) === nz(a.max)) ? null : nz(a.min);
+  var bMin = (nz(b.min) === nz(b.max)) ? null : nz(b.min);
+
+  setIcon('ic1', pickIcon(a.text), 72);
+  setIcon('ic2', pickIcon(b.text), 56);
+  txt('h1', degHi(nz(a.max)));
+  txt('l1', degLo(aMin));
+  txt('h2', degHi(nz(b.max)));
+  txt('l2', degLo(bMin));
+  txt('pop1', nz(a.pop) === null ? '' : (a.pop + '%'));
+  txt('pop2', nz(b.pop) === null ? '' : (b.pop + '%'));
+  layout();
+}
+
+/* 「アイコン＋文字」を1つのかたまりとして列の中央に置く。
+   文字幅はデータで変わる（最低気温の有無・氷点下の符号・3桁の降水確率）ため、
+   固定座標では必ずどこかに穴が空く。描画のたびに実測して置き直す。 */
+function centerGroup(colX, colW, icoId, icoW, aId, bId, gap) {
+  var ico = document.getElementById(icoId);
+  var A = document.getElementById(aId), B = document.getElementById(bId);
+  A.style.width = 'auto'; B.style.width = 'auto';
+  var w = Math.max(A.offsetWidth, B.offsetWidth);
+  var x = colX + Math.round((colW - (icoW + gap + w)) / 2);
+  if (x < colX) x = colX;
+  ico.style.left = x + 'px';
+  A.style.left = B.style.left = (x + icoW + gap) + 'px';
+  A.style.width = B.style.width = w + 'px';
+}
+
+function layout() {
+  /* 縦型は全要素が width:96px の中央揃えなので、実測による再配置は不要 */
+}
+
+var lastOK = 0;
+function tick() {
+  var d = new Date();
+  txt('date', (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')');
+  txt('time', d.getHours() + ':' + pad2(d.getMinutes()));
+  /* 日付が変わったら、取得を待たずにその場で描画し直す。
+     0時をまたいだ瞬間に「今日/明日」が正しくずれる。
+     通信が切れていて手持ちのデータに当日分が無ければ、自動的に "--" になる
+     （古い予報を今日の天気として出し続けない）。 */
+  if (lastData && key(d) !== lastDay) render(lastData);
+}
+
+/* ---------------- 画面ローテーション ----------------
+   「ふわっと消える → 一度真っ黒 → ふわっと現れる」の順で入れ替える。
+   2枚を同時に半透明にしないので二重像が出ず、低輝度時もきれいに見える。 */
+var PANES = ['s1', 's2'];
+var cur = 0;
+
+function setOp(el, v, animate) {
+  el.className = animate ? 'pane fade' : 'pane';
+  el.style.opacity = v;
+}
+
+/* ロゴ画面の演出（パーツの飛び込みと車）を先頭から流し直す。
+   ペインは常にDOM上にあるため、放っておくと画面に出ていない間に終わってしまう。
+   一度 animation を none にして強制的にレイアウトを確定させてから戻すのが確実な作法。 */
+function restartLogo() {
+  var els = document.getElementById('s2').getElementsByTagName('*'), i, e, c;
+  for (i = 0; i < els.length; i++) {
+    e = els[i];
+    c = '' + (e.className || '');
+    if (c.indexOf('in') < 0 && c.indexOf('car') < 0) continue;
+    e.style.animation = 'none';
+    void e.offsetWidth;
+    e.style.animation = '';
+  }
+}
+
+function rotate() {
+  var from = document.getElementById(PANES[cur]);
+  var nextIdx = (cur + 1) % PANES.length;
+  var to = document.getElementById(PANES[nextIdx]);
+
+  setOp(from, 0, true);                  /* ふわっと消す */
+  setTimeout(function () {
+    if (nextIdx === 1) restartLogo();    /* ロゴ画面に入る瞬間に演出を流し直す */
+    setOp(to, 1, true);                  /* 暗転しきってから、ふわっと出す */
+    setTimeout(function () {
+      cur = nextIdx;
+      setTimeout(rotate, CFG.HOLD[cur]);
+    }, CFG.FADE + 80);
+  }, CFG.FADE + 80);
+}
+
+/* ---------------- 直前データの保存と復元 ----------------
+   番組のループやTaurusの再起動でページが読み直されると、
+   気象庁から取り直すまでの1〜2秒間 "--" が出てしまう。
+   最後に取得できたJSONを端末内に保存しておき、起動直後はそれを即座に描画する。
+   停電復帰などでネットワークがまだ繋がっていない場合も、前回の内容を出したまま待てる。
+   保存できない環境（プライベートモード等）でも動くよう、必ず try で囲む。 */
+var CACHE_KEY = 'ledWeatherCache';
+
+function saveCache(text) {
+  try {
+    window.localStorage.setItem(CACHE_KEY, (new Date()).getTime() + '|' + text);
+  } catch (e) { /* 保存できなくても表示には影響しないので握りつぶす */ }
+}
+
+function loadCache() {
+  var raw = null;
+  try { raw = window.localStorage.getItem(CACHE_KEY); } catch (e) { return false; }
+  if (!raw) return false;
+  var p = raw.indexOf('|');
+  if (p < 0) return false;
+  var saved = parseInt(raw.slice(0, p), 10);
+  /* 24時間以上前のものは古すぎるので使わない（前日の予報を出し続けないため） */
+  if (!saved || (new Date()).getTime() - saved > 86400000) return false;
+  try {
+    render(parseJMA(JSON.parse(raw.slice(p + 1))));
+  } catch (e2) { return false; }
+  return true;
+}
+
+/* ---------------- 取得 ---------------- */
+function load() {
+  var url = (CFG.MODE === 'local' ? CFG.LOCAL : CFG.JMA);
+  url += (url.indexOf('?') >= 0 ? '&' : '?') + '_=' + (new Date()).getTime();
+
+  var x = new XMLHttpRequest(), done = false;
+  function fail() {
+    if (done) return;
+    done = true;
+    /* 失敗しても直前の表示はそのまま残す（画面を空白にしない） */
+    setTimeout(load, CFG.RETRY);
+  }
+  x.onreadystatechange = function () {
+    if (x.readyState !== 4 || done) return;
+    if (x.status >= 200 && x.status < 300) {
+      var j;
+      try { j = JSON.parse(x.responseText); } catch (e) { fail(); return; }
+      try { render(parseJMA(j)); } catch (e2) { fail(); return; }
+      done = true;
+      lastOK = (new Date()).getTime();
+      saveCache(x.responseText);   /* 次回起動時に即表示するため保存 */
+      setTimeout(load, CFG.REFRESH);
+    } else { fail(); }
+  };
+  x.onerror = fail;
+  x.ontimeout = fail;
+  try {
+    x.open('GET', url, true);
+    x.timeout = 20000;
+    x.send(null);
+  } catch (e3) { fail(); }
+}
+
+/* ---------------- 起動 ---------------- */
+layout();
+setOp(document.getElementById('s1'), 1, false);   /* 天気を最初に出す */
+setOp(document.getElementById('s2'), 0, false);
+tick();
+setInterval(tick, 20000);
+loadCache();   /* まず前回の値を出す（起動直後に -- を見せない） */
+load();         /* そのうえで最新を取りに行く */
+setTimeout(rotate, CFG.HOLD[0]);
+</script>
+
+<script>
+/* 回転方向の切り替え。
+   既定は反時計回り(-90deg)。上下が逆さまに見えるときは URL の末尾に ?d=2 を付ける。
+     https://.../r/      … 既定
+     https://.../r/?d=2  … 反対向き */
+(function () {
+  if ((location.search || '').indexOf('d=2') < 0) return;
+  var el = document.getElementById('led');
+  el.style.webkitTransform = 'rotate(90deg)';
+  el.style.transform = 'rotate(90deg)';
+})();
+</script>
+</body></html>
