@@ -88,6 +88,45 @@ html,body{margin:0;padding:0;width:384px;height:96px;overflow:hidden;background:
 #led .c2{animation:ledcut2 4800ms linear 1 both}
 #led .c3{animation:ledcut3 4800ms linear 1 both}
 #led .c4{animation:ledcut4 4800ms linear 1 both}
+/* ---- 分割パネル ----
+   384x96 に写真を1枚だけ敷くと、普通の写真を4:1に切ることになり「切れている」印象になる。
+   2〜3分割にすれば各パネルが 1.3:1〜2:1 となり、写真本来の構図が生きる。
+   写真素材は 240x120（2:1）で持ち、パネル幅ぶんだけ中央を見せる。 */
+#led .pn{top:0;height:96px}
+#led .sl{left:0;top:0;height:96px;overflow:hidden;opacity:0}
+#led .pi{top:-12px;width:240px;height:120px}
+@keyframes ledkb2{from{transform:scale(1)}to{transform:scale(1.13)}}
+@keyframes ledh1 {0%,49.9%{opacity:1}50%,100%{opacity:0}}
+@keyframes ledh2 {0%,49.9%{opacity:0}50%,100%{opacity:1}}
+@keyframes ledpin{from{transform:translateY(104px)}to{transform:translateY(0)}}
+#led .kbx{animation:ledkb2 5400ms linear 1 both}
+#led .h1 {animation:ledh1  5400ms linear 1 both}
+#led .h2 {animation:ledh2  5400ms linear 1 both}
+#led .pin{animation:ledpin 440ms cubic-bezier(.16,.84,.44,1) 1 both}
+#led .pd2{animation-delay:120ms}
+#led .pd3{animation-delay:240ms}
+
+/* ---- エンドカード：入りと引きの両方を1つのキーフレームで持つ ----
+   transform は1要素に1アニメーションしか効かないため、
+   登場・静止・退場を1本のキーフレームにまとめ、区間ごとにイージングを変えている。 */
+@keyframes ledancA{
+  0%{transform:translateX(-240px);animation-timing-function:cubic-bezier(.16,.84,.44,1)}
+  9%{transform:translateX(0)}
+  86%{transform:translateX(0);animation-timing-function:cubic-bezier(.7,0,.84,0)}
+  100%{transform:translateX(-240px)}}
+@keyframes ledancB{
+  0%{transform:translateX(320px);animation-timing-function:cubic-bezier(.16,.84,.44,1)}
+  12%{transform:translateX(0)}
+  86%{transform:translateX(0);animation-timing-function:cubic-bezier(.7,0,.84,0)}
+  100%{transform:translateX(320px)}}
+@keyframes ledancC{
+  0%{transform:translateY(48px);animation-timing-function:cubic-bezier(.16,.84,.44,1)}
+  17%{transform:translateY(0)}
+  86%{transform:translateY(0);animation-timing-function:cubic-bezier(.7,0,.84,0)}
+  100%{transform:translateY(48px)}}
+#led .anA{animation:ledancA 5450ms 1 both}
+#led .anB{animation:ledancB 5450ms 1 both}
+#led .anC{animation:ledancC 5450ms 1 both}
 /* ---- ロゴ画面の車 ----
    右(x=400)から左(x=-110)へ1回だけ走り、走り終わったら枠外で止まる(both)。
    ロゴ画面に切り替わるたびに JS の restartCars() で先頭から流し直す。 */
@@ -345,9 +384,9 @@ function parseJMA(json) {
 }
 
 /* ---------------- 描画 ---------------- */
-function txt(id, v) { document.getElementById(id).innerHTML = v; }
-/* その画面に無いこともある要素向け。無ければ何もしない */
-function txtIf(id, v) { var e = document.getElementById(id); if (e) e.innerHTML = v; }
+/* 要素が無い画面（デモなど）でも落ちないよう、常に存在確認する */
+function txt(id, v) { var e = document.getElementById(id); if (e) e.innerHTML = v; }
+function txtIf(id, v) { txt(id, v); }
 function nz(v) { return (v === undefined || v === null) ? null : v; }
 function degHi(v) { return v === null ? '--' : (v + '<i class="deg">°</i>'); }
 function degLo(v) { return v === null ? ''   : (v + '<i class="deg2">°</i>'); }
@@ -385,6 +424,7 @@ function render(data) {
 function centerGroup(colX, colW, icoId, icoW, aId, bId, gap) {
   var ico = document.getElementById(icoId);
   var A = document.getElementById(aId), B = document.getElementById(bId);
+  if (!ico || !A || !B) return;   /* 天気画面が無いページでは何もしない */
   A.style.width = 'auto'; B.style.width = 'auto';
   var w = Math.max(A.offsetWidth, B.offsetWidth);
   var x = colX + Math.round((colW - (icoW + gap + w)) / 2);
@@ -526,8 +566,10 @@ setOp(document.getElementById('s1'), 1, false);   /* 天気を最初に出す */
 setOp(document.getElementById('s2'), 0, false);
 tick();
 setInterval(tick, 20000);
-loadCache();   /* まず前回の値を出す（起動直後に -- を見せない） */
-load();         /* そのうえで最新を取りに行く */
+if (document.getElementById('h1')) {   /* 天気画面があるページだけ取得する */
+  loadCache();   /* まず前回の値を出す（起動直後に -- を見せない） */
+  load();        /* そのうえで最新を取りに行く */
+}
 setTimeout(rotate, CFG.HOLD[0]);
 </script>
 </body></html>
