@@ -75,6 +75,26 @@ html,body{margin:0;padding:0;width:384px;height:96px;overflow:hidden;background:
 #led .dl3{animation-delay:320ms}
 #led .dl4{animation-delay:470ms}
 #led .dl5{animation-delay:580ms}
+/* ---- 写真モンタージュ ----
+   カットは opacity を 0 か 1 しか取らない「ハードカット」。
+   半透明の中間状態を一切作らないので、LEDの低輝度域で濁らない。
+   写真そのものは中間調で構わない（フルカラーLEDの持ち味はここにある）。
+   ケン・バーンズ（ゆっくり寄る動き）は transform なので輝度に影響しない。 */
+#led .cut{left:0;top:0;width:384px;height:96px;overflow:hidden;opacity:0}
+#led .ph {left:-38px;top:-10px;width:460px;height:115px}
+@keyframes ledkb   {from{transform:scale(1.02)}to{transform:scale(1.14)}}
+@keyframes ledcut1 {0%,24.99%{opacity:1}25%,100%{opacity:0}}
+@keyframes ledcut2 {0%,24.99%{opacity:0}25%,49.99%{opacity:1}50%,100%{opacity:0}}
+@keyframes ledcut3 {0%,49.99%{opacity:0}50%,74.99%{opacity:1}75%,100%{opacity:0}}
+@keyframes ledcut4 {0%,74.99%{opacity:0}75%,100%{opacity:1}}
+#led .kb {animation:ledkb 1200ms linear 1 both}
+#led .kb2{animation-delay:1200ms}
+#led .kb3{animation-delay:2400ms}
+#led .kb4{animation-delay:3600ms}
+#led .c1{animation:ledcut1 4800ms linear 1 both}
+#led .c2{animation:ledcut2 4800ms linear 1 both}
+#led .c3{animation:ledcut3 4800ms linear 1 both}
+#led .c4{animation:ledcut4 4800ms linear 1 both}
 /* ---- ロゴ画面の車 ----
    右(x=400)から左(x=-110)へ1回だけ走り、走り終わったら枠外で止まる(both)。
    ロゴ画面に切り替わるたびに JS の restartCars() で先頭から流し直す。 */
